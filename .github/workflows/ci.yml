@@ -1,0 +1,78 @@
+name: ci
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+# a newer run of the same ref replaces a running older one
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          # throwaway database of this job
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: hue_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d hue_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      HUE_TEST_PG: Host=127.0.0.1;Port=5432;Username=postgres;Database=hue_test
+      HUE_REQUIRE_PG: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet build HotelUnderwriting.slnx -c Release -warnaserror -p:NuGetAudit=false
+      - run: dotnet test HotelUnderwriting.slnx -c Release --no-build -p:NuGetAudit=false --logger trx --results-directory TestResults
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: test-results-linux
+          path: TestResults
+      - name: CLI figures
+        run: bash scripts/check-cli-figures.sh
+      - name: Vulnerable packages
+        run: bash scripts/check-vulnerable-packages.sh
+
+  # Without PostgreSQL: the database tests show as skipped here and run in the test job.
+  test-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet build HotelUnderwriting.slnx -c Release -warnaserror -p:NuGetAudit=false
+      - run: dotnet test HotelUnderwriting.slnx -c Release --no-build -p:NuGetAudit=false --logger trx --results-directory TestResults
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: test-results-windows
+          path: TestResults
+
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image and smoke test the Compose stack
+        run: bash scripts/smoke.sh

@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HotelUnderwriting.Api/HotelUnderwriting.Api.csproj" />
+    <Project Path="src/HotelUnderwriting.Application/HotelUnderwriting.Application.csproj" />
+    <Project Path="src/HotelUnderwriting.Cli/HotelUnderwriting.Cli.csproj" />
+    <Project Path="src/HotelUnderwriting.Core/HotelUnderwriting.Core.csproj" />
+    <Project Path="src/HotelUnderwriting.Excel/HotelUnderwriting.Excel.csproj" />
+    <Project Path="src/HotelUnderwriting.Persistence/HotelUnderwriting.Persistence.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HotelUnderwriting.Api.Tests/HotelUnderwriting.Api.Tests.csproj" />
+    <Project Path="tests/HotelUnderwriting.Persistence.Tests/HotelUnderwriting.Persistence.Tests.csproj" />
+    <Project Path="tests/HotelUnderwriting.PropertyTests/HotelUnderwriting.PropertyTests.csproj" />
+    <Project Path="tests/HotelUnderwriting.Tests/HotelUnderwriting.Tests.csproj" />
+  </Folder>
+</Solution>

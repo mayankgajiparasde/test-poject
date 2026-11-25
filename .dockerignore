@@ -1,0 +1,7 @@
+# Allow list: only the sources the image is built from enter the build context.
+*
+!src/
+**/bin
+**/obj
+**/*.user
+**/.env*

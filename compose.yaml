@@ -1,0 +1,68 @@
+# Local stack with login on. Needs HUE_DB_PASSWORD and HUE_JWT_KEY in the environment or in .env (see .env.example).
+name: hue
+
+x-service: &service
+  image: hue-underwriting:local
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+  # Two uploads at once, each a child process with the default 512 MB heap limit, plus the service itself.
+  mem_limit: 2g
+  stop_grace_period: 30s
+  depends_on:
+    db:
+      condition: service_healthy
+
+x-environment: &environment
+  Persistence__ConnectionString: Host=db;Database=hue;Username=hue;Password=${HUE_DB_PASSWORD:?set HUE_DB_PASSWORD, see .env.example}
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hue
+      POSTGRES_DB: hue
+      POSTGRES_PASSWORD: ${HUE_DB_PASSWORD:?set HUE_DB_PASSWORD, see .env.example}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      # over TCP: the temporary server of the first initialisation listens on the socket only
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "hue", "-d", "hue"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  api:
+    <<: *service
+    build: .
+    environment:
+      <<: *environment
+      Role: api
+      ASPNETCORE_ENVIRONMENT: Development
+      Auth__Mode: jwt
+      Auth__Issuer: https://hue.local
+      Auth__Audience: hue-api
+      Auth__DevSigningKey: ${HUE_JWT_KEY:?set HUE_JWT_KEY, see .env.example}
+    ports:
+      - 127.0.0.1:${HUE_API_PORT:-5080}:8080
+
+  worker:
+    <<: *service
+    # the image the api service builds; never pulled
+    pull_policy: never
+    environment:
+      <<: *environment
+      Role: worker
+      Auth__Mode: none
+      # Mode none only starts on loopback: the .NET image's ASPNETCORE_HTTP_PORTS (all addresses) is cleared.
+      ASPNETCORE_HTTP_PORTS: ""
+      ASPNETCORE_URLS: http://127.0.0.1:8080
+
+volumes:
+  db-data:

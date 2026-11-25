@@ -1,0 +1,3 @@
+# Same bytes on every runner; shell scripts and everything else keep LF, workbooks are binary.
+* text=auto eol=lf
+*.xlsx binary

@@ -1,0 +1,3050 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Hotel Underwriting Engine API",
+    "version": "1.0.0",
+    "description": "Publish immutable assumption sets and run one scenario synchronously. Runs are content-addressed: the same inputs give the same runKey and the stored result is returned (wasCached true). Authentication depends on the Auth:Mode setting. none (default): no token is needed and the service refuses to listen on anything but loopback (http://127.0.0.1:5080). jwt: every route except /health/* and /openapi/v1.json needs a bearer token (roles claim analyst, reviewer or admin; reviewer may only GET; POST needs analyst or admin), publishing needs the X-Deal-Id header (runs and sweeps need it only when the set belongs to several candidate deals), a new run or job is granted to exactly one deal, and a caller sees only resources of the deals in its deals claim (admin sees all); a resource of another deal answers 404 exactly like a missing one. 401 and 403 occur only in jwt mode. Errors are RFC 9457 application/problem+json. Sweeps: POST /v1/sweeps queues one base scenario plus many override cases (or a grid) as a durable job processed in chunks of 500 cases by competing workers; poll GET /v1/jobs/{id} and page GET /v1/jobs/{id}/results. Limits: at most 100000 cases, 20 grid axes, 1000 values per axis, 20 overrides per case, case names of at most 100 characters, Idempotency-Key of at most 128 characters of A-Z a-z 0-9 . _ -. Job status: queued (no chunk claimed yet), running, succeeded (all chunks done), failed (any chunk dead after 5 attempts; the other chunks still finish). A case the engine rejects is recorded as that case's error and does not fail the job."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:5080"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/v1/assumption-sets": {
+      "post": {
+        "summary": "Publish an immutable assumption set",
+        "operationId": "publishAssumptionSet",
+        "parameters": [
+          {
+            "name": "X-Deal-Id",
+            "in": "header",
+            "required": false,
+            "description": "Required in jwt mode (ignored in mode none): the deal the set is granted to. An analyst must have it in the deals claim; admin may use any deal.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,64}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Assumptions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created (first publish)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssumptionSetResponse"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "/v1/assumption-sets/{id}"
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Identical content already published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssumptionSetResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed JSON, unknown $type, or a body that does not match the schema; in jwt mode also a missing or malformed X-Deal-Id",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "jwt mode: no valid bearer token (no reason is given)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string",
+                  "const": "Bearer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "jwt mode: the token has no recognised role, or is only a reviewer, or X-Deal-Id is not one of its deals",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body over 1 MB",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type is not JSON (a charset, when given, must name an encoding the body can be read with; unknown, empty and UTF-7 charsets are refused)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Body parses but fails engine validation (message in detail) (also duplicate scenario names, no scenarios, more than 20 scenarios, 500 operating lines, 50 percent items or 50 years per vector, a name or code over 100 characters or with control characters, an unknown percent item base, overflow or non-finite cash flows). Rules (each violation is a 422 with a fixed text that names the field and never quotes the rejected value; it may name the scenario and, for the engine's own messages, a number): purchase price above 0; closing costs, placement costs and PIP per key at least 0; fee, cost-of-sale, asset-management, percent-of-revenue, interest and GP share, promote and preferred return rates and loan-to-cost from 0 to 1; exit cap rate above 0 and at most 1; occupancy (every year and the base year) from 0 to 1; ADR growth and expense inflation above -1; base ADR above 0; keys above 0; amortization years above 0; interest-only months at least 0; hold 12-84 months; with a PIP budget the PIP duration and start month are at least 1 and the PIP ends within the hold; scenario names, line codes and percent-item codes are not empty, have no leading or trailing whitespace and are unique; at least one operating line; the year list is strictly ascending; the acquisition date is the 1st of a month at midnight and not so far in the future that the 96-month horizon overflows; no character of Unicode category Cc, Cf (bidi, zero-width, LRM/RLM/ALM, soft hyphen, tag characters), Cs (lone surrogate), Co, Cn, Zl or Zp and no U+034F in any name, code, section, driver or sweep case name; scenario names are unique ignoring case; an operating line's fixed share is from 0 to 1 and its base amount at least 0; percent-of-revenue rates add up to at most 1; cost of sale plus disposition fee at most 1; a refinance rate, refinance fee and hurdle at most 1. A JSON date with an offset is converted to server-local time and may stop being midnight on the 1st: send Z or a plain date",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error (generic detail only)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is unavailable (connection lost or timed out): retry after the Retry-After seconds; retrying is safe (the set, run or job may already be stored if the failure came after the write)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/assumption-sets/excel": {
+      "post": {
+        "summary": "Publish an assumption set from an Excel workbook",
+        "operationId": "publishAssumptionSetFromExcel",
+        "parameters": [
+          {
+            "name": "X-Deal-Id",
+            "in": "header",
+            "required": false,
+            "description": "Required in jwt mode (ignored in mode none): the deal the set is granted to. An analyst must have it in the deals claim; admin may use any deal.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,64}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Identical content already published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssumptionSetResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created (first publish)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssumptionSetResponse"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "/v1/assumption-sets/{id}"
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "In jwt mode a missing or malformed X-Deal-Id, checked before the body is read; also a body that cannot be read",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "jwt mode: no valid bearer token (no reason is given)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string",
+                  "const": "Bearer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "jwt mode: the token has no recognised role, or is only a reviewer, or X-Deal-Id is not one of its deals",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "The body was not received within Upload:BodyTimeoutSeconds; the connection is closed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body over 10 MB",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type is not the .xlsx content type",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The file was refused (the detail is a fixed reason or names the sheet, label or cell), it could not be processed within the memory and time limits, or the engine rejects the parsed assumptions as on POST /v1/assumption-sets (the rules listed on POST /v1/assumption-sets apply)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error, including a workbook parser that cannot start (generic detail only)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Too many uploads are being processed, the service is stopping, or the database is unavailable; try again later",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        },
+        "description": "The body is the .xlsx file itself, at most 10 MB. The package is inspected (at most 500 entries, 50 MB decompressed per entry and 100 MB in total, 50 sheets, 20000 rows per sheet, 200000 cells; no macros, external links, external relationships other than hyperlinks, data connections, query tables, embedded objects or packages, ActiveX or DTDs) and parsed in a child process with memory and time limits. Formulas are never evaluated: the value cached in the file is used. Nothing is stored on disk. The body must arrive within the body time limit (408). The parsed set has the size limits of every published set: 20 scenarios, 500 operating lines, 50 percent-of-revenue items, 50 years per scenario, 100 characters per name or code."
+      }
+    },
+    "/v1/assumption-sets/{id}": {
+      "get": {
+        "summary": "Fetch an assumption set",
+        "operationId": "getAssumptionSet",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The assumption set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssumptionSetResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "jwt mode: no valid bearer token (no reason is given)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string",
+                  "const": "Bearer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "jwt mode: the token has no recognised role",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error (generic detail only)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is unavailable (connection lost or timed out): retry after the Retry-After seconds; retrying is safe (the set, run or job may already be stored if the failure came after the write)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runs": {
+      "post": {
+        "summary": "Run one scenario of a published set",
+        "operationId": "submitRun",
+        "parameters": [
+          {
+            "name": "X-Deal-Id",
+            "in": "header",
+            "required": false,
+            "description": "jwt mode (ignored in mode none): the deal the new run or job is granted to. It must be a deal of the assumption set, and for an analyst also one of the deals claim. Required when there is more than one candidate (for an analyst the deals shared with the set; for an admin the shared ones, or all of the set's when none is shared). Checked after the set is found visible.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,64}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The run (wasCached true when it came from the store)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed JSON, unknown $type, or a body that does not match the schema; in jwt mode also a malformed X-Deal-Id, or none when the set has several candidate deals",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "jwt mode: no valid bearer token (no reason is given)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string",
+                  "const": "Bearer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "jwt mode: the token has no recognised role, or is only a reviewer, or X-Deal-Id is not a permitted deal of the set",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body over 1 MB",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type is not JSON (a charset, when given, must name an encoding the body can be read with; unknown, empty and UTF-7 charsets are refused)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Body parses but fails engine validation (message in detail), with the same rules as publishing (also for a scenario of a stored set) and a result that is not finite",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error (generic detail only)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is unavailable (connection lost or timed out): retry after the Retry-After seconds; retrying is safe (the set, run or job may already be stored if the failure came after the write)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/runs/{runKey}": {
+      "get": {
+        "summary": "Fetch a stored run",
+        "operationId": "getRun",
+        "parameters": [
+          {
+            "name": "runKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "required": false,
+            "description": "Comma separated and/or repeated: monthly, proforma",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "monthly",
+                  "proforma"
+                ]
+              }
+            },
+            "style": "form",
+            "explode": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed JSON, unknown $type, or a body that does not match the schema",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "jwt mode: no valid bearer token (no reason is given)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string",
+                  "const": "Bearer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "jwt mode: the token has no recognised role",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error (generic detail only)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is unavailable (connection lost or timed out): retry after the Retry-After seconds; retrying is safe (the set, run or job may already be stored if the failure came after the write)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "summary": "Liveness",
+        "operationId": "healthLive",
+        "responses": {
+          "200": {
+            "description": "Process is up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error (generic detail only)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/health/startup": {
+      "get": {
+        "summary": "Startup: 200 once the database migration has succeeded (immediately with in-memory persistence), otherwise 503; never retries the migration",
+        "operationId": "healthStartup",
+        "responses": {
+          "200": {
+            "description": "Started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error (generic detail only)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not started: the migration has not succeeded yet (generic detail only)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "summary": "Readiness: checks that the stores respond (queries the database in PostgreSQL mode) and that the engine still reproduces its embedded golden scenario",
+        "operationId": "healthReady",
+        "responses": {
+          "200": {
+            "description": "Ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error (generic detail only)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not ready: a store did not respond or the engine self-test failed (generic detail only, never a figure)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/openapi/v1.json": {
+      "get": {
+        "summary": "This document",
+        "operationId": "getOpenApi",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1 document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error (generic detail only)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/sweeps": {
+      "post": {
+        "summary": "Submit a scenario sweep as an asynchronous job",
+        "operationId": "submitSweep",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "At most 128 characters of A-Z a-z 0-9 . _ -. The same key with the same request returns the same job; with a different request it answers 409. In jwt mode keys are scoped to the token subject and the target deal, so the same key for another deal creates another job.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._-]+$"
+            }
+          },
+          {
+            "name": "X-Deal-Id",
+            "in": "header",
+            "required": false,
+            "description": "jwt mode (ignored in mode none): the deal the new run or job is granted to. It must be a deal of the assumption set, and for an analyst also one of the deals claim. Required when there is more than one candidate (for an analyst the deals shared with the set; for an admin the shared ones, or all of the set's when none is shared). Checked after the set is found visible.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]{1,64}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SweepRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted: the job is queued (a repeat with the same key and request answers 202 with the same job)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SweepAccepted"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "/v1/jobs/{jobId}"
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed JSON, a body that does not match the schema, or an invalid Idempotency-Key; in jwt mode also a malformed X-Deal-Id, or none when the set has several candidate deals",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "jwt mode: no valid bearer token (no reason is given)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string",
+                  "const": "Bearer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "jwt mode: the token has no recognised role, or is only a reviewer, or X-Deal-Id is not a permitted deal of the set",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown assumption set or scenario",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The Idempotency-Key was already used with a different request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body over 1 MB",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type is not application/json (a charset, when given, must name an encoding the body can be read with; unknown, empty and UTF-7 charsets are refused)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid overrides (unknown path, non-finite value, non-whole value for an integer field) or a limit exceeded. A case whose overridden scenario breaks a publish rule, or overflows, is not a 422: it is stored as a case error and no run is stored for it",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error (generic detail only). In jwt mode the job may already be stored without its deal grant: repeat the request with the same Idempotency-Key to repair it.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is unavailable (connection lost or timed out): retry after the Retry-After seconds; retrying is safe (the set, run or job may already be stored if the failure came after the write)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{id}": {
+      "get": {
+        "summary": "Fetch a job's status and progress",
+        "operationId": "getJob",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "jwt mode: no valid bearer token (no reason is given)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string",
+                  "const": "Bearer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "jwt mode: the token has no recognised role",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is unavailable (connection lost or timed out): retry after the Retry-After seconds; retrying is safe (the set, run or job may already be stored if the failure came after the write)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{id}/results": {
+      "get": {
+        "summary": "Page through a job's case results, ordered by case index",
+        "operationId": "getJobResults",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "description": "Return results with a case index greater than this",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size, 1 to 1000",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of results; next is the last case index when more remain, else null",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResultsResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid after or limit",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "jwt mode: no valid bearer token (no reason is given)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "type": "string",
+                  "const": "Bearer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "jwt mode: the token has no recognised role",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is unavailable (connection lost or timed out): retry after the Retry-After seconds; retrying is safe (the set, run or job may already be stored if the failure came after the write)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "X-Correlation-Id": {
+                "description": "Correlation id: the request's X-Correlation-Id when it is at most 64 characters of A-Z a-z 0-9 . _ -, otherwise a generated GUID.",
+                "schema": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail"
+        ]
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "AssumptionSetResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Lowercase hex SHA-256 of the canonical JSON of the whole Assumptions. Order-sensitive: the same scenarios in a different order give a different id"
+          },
+          "createdUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "scenarios": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "createdUtc",
+          "scenarios"
+        ]
+      },
+      "RunRequest": {
+        "type": "object",
+        "properties": {
+          "assumptionSetId": {
+            "type": "string"
+          },
+          "scenario": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "assumptionSetId",
+          "scenario"
+        ]
+      },
+      "RunResponse": {
+        "type": "object",
+        "properties": {
+          "runKey": {
+            "type": "string"
+          },
+          "engineVersion": {
+            "type": "string"
+          },
+          "createdUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "wasCached": {
+            "type": "boolean"
+          },
+          "scenario": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ReturnsSummary"
+          },
+          "monthly": {
+            "type": "object",
+            "description": "Only with include=monthly: monthly schedule arrays, index 0 = acquisition"
+          },
+          "proforma": {
+            "type": "object",
+            "description": "Only with include=proforma: annual proforma arrays plus lines[{code,name,section,amounts}]"
+          }
+        },
+        "required": [
+          "runKey",
+          "engineVersion",
+          "createdUtc",
+          "wasCached",
+          "scenario",
+          "summary"
+        ]
+      },
+      "ReturnsSummary": {
+        "type": "object",
+        "properties": {
+          "pipTotal": {
+            "type": "number"
+          },
+          "acquisitionFee": {
+            "type": "number"
+          },
+          "loanCommitment": {
+            "type": "number"
+          },
+          "pipHoldback": {
+            "type": "number"
+          },
+          "initialFundedLoan": {
+            "type": "number"
+          },
+          "financingCostsTotal": {
+            "type": "number"
+          },
+          "debtConstant": {
+            "type": "number"
+          },
+          "equityAtClose": {
+            "type": "number"
+          },
+          "forwardNoiAtExit": {
+            "type": "number"
+          },
+          "grossSalePrice": {
+            "type": "number"
+          },
+          "loanPayoff": {
+            "type": "number"
+          },
+          "netSaleProceeds": {
+            "type": "number"
+          },
+          "peakLoanBalance": {
+            "type": "number"
+          },
+          "month1Interest": {
+            "type": "number"
+          },
+          "firstAmortizingPayment": {
+            "type": "number"
+          },
+          "unleveredIrr": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "unleveredMultiple": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "leveredIrr": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "leveredMultiple": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "leveredNetProfit": {
+            "type": "number"
+          },
+          "lpIrr": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lpMultiple": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "gpIrr": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "gpMultiple": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "loanBalanceAfterExit": {
+            "type": "number"
+          },
+          "waterfallMaxAbsError": {
+            "type": "number"
+          },
+          "sourcesLessUses": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "pipTotal",
+          "acquisitionFee",
+          "loanCommitment",
+          "pipHoldback",
+          "initialFundedLoan",
+          "financingCostsTotal",
+          "debtConstant",
+          "equityAtClose",
+          "forwardNoiAtExit",
+          "grossSalePrice",
+          "loanPayoff",
+          "netSaleProceeds",
+          "peakLoanBalance",
+          "month1Interest",
+          "firstAmortizingPayment",
+          "unleveredIrr",
+          "unleveredMultiple",
+          "leveredIrr",
+          "leveredMultiple",
+          "leveredNetProfit",
+          "lpIrr",
+          "lpMultiple",
+          "gpIrr",
+          "gpMultiple",
+          "loanBalanceAfterExit",
+          "waterfallMaxAbsError",
+          "sourcesLessUses"
+        ]
+      },
+      "Assumptions": {
+        "type": "object",
+        "properties": {
+          "property": {
+            "$ref": "#/components/schemas/PropertyInputs"
+          },
+          "lines": {
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperatingLine"
+            }
+          },
+          "percentItems": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PercentItem"
+            }
+          },
+          "seasonality": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 12,
+            "maxItems": 12,
+            "description": "12 monthly weights summing to 1"
+          },
+          "scenarios": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScenarioInputs"
+            },
+            "minItems": 1,
+            "description": "Names must be unique; at most 20 (more is a 422)",
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "property",
+          "lines",
+          "percentItems",
+          "seasonality",
+          "scenarios"
+        ]
+      },
+      "PropertyInputs": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "keys": {
+            "type": "integer"
+          },
+          "acquisitionDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "baseYear": {
+            "type": "integer"
+          },
+          "baseOccupancy": {
+            "type": "number"
+          },
+          "baseAdr": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "keys",
+          "acquisitionDate",
+          "baseYear",
+          "baseOccupancy",
+          "baseAdr"
+        ]
+      },
+      "OperatingLine": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "REV",
+              "DEPT",
+              "UNDIST",
+              "FIXED"
+            ]
+          },
+          "baseAmount": {
+            "type": "number"
+          },
+          "fixedPct": {
+            "type": "number"
+          },
+          "driver": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "section",
+          "baseAmount",
+          "fixedPct",
+          "driver"
+        ]
+      },
+      "PercentItem": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pct": {
+            "type": "number"
+          },
+          "base": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "pct",
+          "base"
+        ]
+      },
+      "HurdleTier": {
+        "type": "object",
+        "properties": {
+          "lpIrrHurdle": {
+            "type": "number"
+          },
+          "promote": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "lpIrrHurdle",
+          "promote"
+        ]
+      },
+      "Refinance": {
+        "type": "object",
+        "properties": {
+          "$type": {
+            "const": "Refinance"
+          },
+          "month": {
+            "type": "integer"
+          },
+          "rate": {
+            "type": "number"
+          },
+          "interestOnlyMonths": {
+            "type": "integer"
+          },
+          "amortizationYears": {
+            "type": "number"
+          },
+          "feePct": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "$type",
+          "month",
+          "rate",
+          "interestOnlyMonths",
+          "amortizationYears",
+          "feePct"
+        ]
+      },
+      "ScenarioInputs": {
+        "type": "object",
+        "properties": {
+          "purchasePrice": {
+            "type": "number"
+          },
+          "closingCosts": {
+            "type": "number"
+          },
+          "acquisitionFeePct": {
+            "type": "number"
+          },
+          "pipPerKey": {
+            "type": "number"
+          },
+          "pipStartMonth": {
+            "type": "integer"
+          },
+          "pipDurationMonths": {
+            "type": "integer"
+          },
+          "expenseInflation": {
+            "type": "number"
+          },
+          "loanToCost": {
+            "type": "number"
+          },
+          "interestRate": {
+            "type": "number"
+          },
+          "interestOnlyMonths": {
+            "type": "integer"
+          },
+          "amortizationYears": {
+            "type": "number"
+          },
+          "originationFeePct": {
+            "type": "number"
+          },
+          "placementCosts": {
+            "type": "number"
+          },
+          "assetMgmtFeePct": {
+            "type": "number"
+          },
+          "holdMonths": {
+            "type": "integer"
+          },
+          "exitCapRate": {
+            "type": "number"
+          },
+          "costOfSalePct": {
+            "type": "number"
+          },
+          "dispositionFeePct": {
+            "type": "number"
+          },
+          "gpShare": {
+            "type": "number"
+          },
+          "prefReturn": {
+            "type": "number"
+          },
+          "promote": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "years": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "occupancy": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "adrGrowth": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "debtEvents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Refinance"
+            }
+          },
+          "hurdleTiers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HurdleTier"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "purchasePrice",
+          "closingCosts",
+          "acquisitionFeePct",
+          "pipPerKey",
+          "pipStartMonth",
+          "pipDurationMonths",
+          "expenseInflation",
+          "loanToCost",
+          "interestRate",
+          "interestOnlyMonths",
+          "amortizationYears",
+          "originationFeePct",
+          "placementCosts",
+          "assetMgmtFeePct",
+          "holdMonths",
+          "exitCapRate",
+          "costOfSalePct",
+          "dispositionFeePct",
+          "gpShare",
+          "prefReturn",
+          "promote",
+          "years",
+          "occupancy",
+          "adrGrowth"
+        ],
+        "description": "holdMonths 12-84; debtEvents are Refinance objects with strictly increasing months in 1..holdMonths-1"
+      },
+      "ScenarioOverride": {
+        "type": "object",
+        "description": "Sets one numeric ScenarioInputs field. pipStartMonth, pipDurationMonths, interestOnlyMonths and holdMonths need a whole number. Applied in list order, last write wins; vectors, events and tiers are never touched.",
+        "properties": {
+          "path": {
+            "type": "string",
+            "enum": [
+              "purchasePrice",
+              "closingCosts",
+              "acquisitionFeePct",
+              "pipPerKey",
+              "pipStartMonth",
+              "pipDurationMonths",
+              "expenseInflation",
+              "loanToCost",
+              "interestRate",
+              "interestOnlyMonths",
+              "amortizationYears",
+              "originationFeePct",
+              "placementCosts",
+              "assetMgmtFeePct",
+              "holdMonths",
+              "exitCapRate",
+              "costOfSalePct",
+              "dispositionFeePct",
+              "gpShare",
+              "prefReturn",
+              "promote"
+            ]
+          },
+          "value": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "path",
+          "value"
+        ]
+      },
+      "SweepCase": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "overrides": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/ScenarioOverride"
+            }
+          }
+        },
+        "required": [
+          "overrides"
+        ]
+      },
+      "GridAxis": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "enum": [
+              "purchasePrice",
+              "closingCosts",
+              "acquisitionFeePct",
+              "pipPerKey",
+              "pipStartMonth",
+              "pipDurationMonths",
+              "expenseInflation",
+              "loanToCost",
+              "interestRate",
+              "interestOnlyMonths",
+              "amortizationYears",
+              "originationFeePct",
+              "placementCosts",
+              "assetMgmtFeePct",
+              "holdMonths",
+              "exitCapRate",
+              "costOfSalePct",
+              "dispositionFeePct",
+              "gpShare",
+              "prefReturn",
+              "promote"
+            ]
+          },
+          "values": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "path",
+          "values"
+        ]
+      },
+      "SweepRequest": {
+        "type": "object",
+        "description": "Exactly one of cases and grid. A grid expands to the cartesian product (first axis varies slowest) and is never stored expanded. At most 100000 cases and 20 axes.",
+        "properties": {
+          "assumptionSetId": {
+            "type": "string"
+          },
+          "scenario": {
+            "type": "string"
+          },
+          "cases": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100000,
+            "items": {
+              "$ref": "#/components/schemas/SweepCase"
+            }
+          },
+          "grid": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/GridAxis"
+            }
+          }
+        },
+        "required": [
+          "assumptionSetId",
+          "scenario"
+        ]
+      },
+      "SweepAccepted": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ]
+          },
+          "caseCount": {
+            "type": "integer"
+          },
+          "chunkCount": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "jobId",
+          "status",
+          "caseCount",
+          "chunkCount"
+        ]
+      },
+      "JobResponse": {
+        "type": "object",
+        "description": "completedCases counts every case with a stored result, failed ones included; failedCases is the subset the engine rejected.",
+        "properties": {
+          "jobId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ]
+          },
+          "createdUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "caseCount": {
+            "type": "integer"
+          },
+          "completedCases": {
+            "type": "integer"
+          },
+          "failedCases": {
+            "type": "integer"
+          },
+          "chunks": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "queued": {
+                "type": "integer"
+              },
+              "leased": {
+                "type": "integer"
+              },
+              "dead": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total",
+              "done",
+              "queued",
+              "leased",
+              "dead"
+            ]
+          }
+        },
+        "required": [
+          "jobId",
+          "status",
+          "createdUtc",
+          "caseCount",
+          "completedCases",
+          "failedCases",
+          "chunks"
+        ]
+      },
+      "SweepSummary": {
+        "type": "object",
+        "properties": {
+          "leveredIrr": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "unleveredIrr": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "leveredMultiple": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lpIrr": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "gpIrr": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "equityAtClose": {
+            "type": "number"
+          },
+          "grossSalePrice": {
+            "type": "number"
+          }
+        }
+      },
+      "JobResultItem": {
+        "type": "object",
+        "properties": {
+          "caseIndex": {
+            "type": "integer"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SweepSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "caseIndex",
+          "name",
+          "runKey",
+          "error",
+          "summary"
+        ]
+      },
+      "JobResultsResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobResultItem"
+            }
+          },
+          "next": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Auth:Mode jwt only. Claims: sub (1 to 128 characters), exp, roles (analyst, reviewer, admin), deals (deal ids)."
+      }
+    }
+  }
+}
